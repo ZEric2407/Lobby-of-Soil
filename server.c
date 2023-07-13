@@ -2,8 +2,96 @@
 #include <WinSock2.h>
 #include <sys/types.h>
 #include <WS2tcpip.h>
+#include <windows.h>
 
 #pragma comment(lib, "ws2_32.lib")
+
+struct clientNode{
+    int socketFD;
+    int userID;
+    char name[32];
+    struct clientNode* next;
+    HANDLE threadHandle;
+};
+
+struct clientNode* HEAD;
+int numClients = 0;
+
+struct clientNode* addNode(int sockFD, int uID, char name[]){
+    struct clientNode* newNode = (struct clientNode*) malloc(sizeof(struct clientNode));
+    if (newNode == NULL){
+        fprintf(stderr, "Unable to create new client node.");
+        return NULL;
+    }
+
+    strcpy(newNode->name, name);
+    newNode->userID = uID;
+    newNode->socketFD = sockFD;
+    
+    if (HEAD == NULL) newNode->next = NULL;
+    else newNode->next = HEAD;
+
+    HEAD = newNode;
+    numClients++;
+    return newNode;
+}
+
+int removeNode(int uid){
+    struct clientNode* currNode = HEAD;
+    
+    if (HEAD->userID == uid){
+        currNode = HEAD->next;
+        free(HEAD);
+        HEAD = currNode;
+        numClients--;
+        return 0;
+    }
+
+    for (int i = 0; i < numClients; i++){
+        if (currNode->next->userID == uid) {
+            struct clientNode* tmpNode = currNode->next;
+            currNode->next = currNode->next->next;
+            free(tmpNode);
+            tmpNode = NULL;
+            numClients--;
+        }
+    }
+
+    fprintf(stderr, "UserID not found");
+    return -1;
+}
+
+int sendMessage(char *message, int uID){
+    struct clientNode* currNode = HEAD;
+    for (int i = 0; i < numClients; i++){
+        int sendStatus = send(currNode->socketFD, message, strlen(message), 0);
+        if (sendStatus == -1) fprintf(stderr, "Error while sending message.");
+        currNode = currNode->next;
+    }
+    return 0;
+}
+
+DWORD WINAPI handleClient(void *arg){
+    int leaveIndicator = -1;
+    char buffer[256];
+
+    while(1){
+        if (leaveIndicator) break;
+        int receiveStatus = recv(((struct clientNode*) arg)->socketFD, buffer, sizeof(buffer), 0);
+        if (receiveStatus > 0 && strlen(buffer) > 0) {
+            sendMessage(buffer, ((struct clientNode*) arg)->userID);
+        } else {
+            fprintf(stderr, "Error while receiving data");
+            break;
+        }
+        strcpy(buffer, "");
+    }
+
+    closesocket(((struct clientNode*) arg)->socketFD);
+    CloseHandle(((struct clientNode*) arg)->threadHandle);
+    removeNode(((struct clientNode*) arg)->userID);
+    return 0;
+}
 
 int main(){
     WORD wVersReq;
@@ -47,15 +135,17 @@ int main(){
     }
 
     listen(socketFD, 4);
-    int client = accept(socketFD, NULL, NULL);
-    printf("Connection Found\n");
 
-    char message[20] = "Hua Sheng\0";
-    send(client, message, sizeof(message), 0);
+    DWORD threadID;
+    while (1) {
+        int client = accept(socketFD, NULL, NULL);
+        printf("Connection Found\n");
+        char buffer[256];
 
-    char buffer[500];
-    recv(client, buffer, sizeof(buffer), 0);
-    printf("Client: %s", buffer);
+        recv(client, buffer, sizeof(buffer), 0);
+        struct clientNode* node = addNode(client, numClients, buffer);
+        node->threadHandle = CreateThread(NULL, 0, handleClient, (void *)node, 0 ,&threadID);
+    }
 
     closesocket(socketFD);
     WSACleanup();
