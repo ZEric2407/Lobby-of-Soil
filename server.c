@@ -33,6 +33,7 @@ struct clientNode* addNode(int sockFD, int uID, char name[]){
 
     HEAD = newNode;
     numClients++;
+    puts("New Node Created");
     return newNode;
 }
 
@@ -63,22 +64,28 @@ int removeNode(int uid){
 
 int sendMessage(char *message, int uID){
     struct clientNode* currNode = HEAD;
+    puts("Sending Message");
     for (int i = 0; i < numClients; i++){
-        int sendStatus = send(currNode->socketFD, message, strlen(message), 0);
-        if (sendStatus == -1) fprintf(stderr, "Error while sending message.");
+        if (currNode->userID != uID) {
+            int sendStatus = send(currNode->socketFD, message, strlen(message), 0);
+            if (sendStatus == -1) fprintf(stderr, "Error while sending message.");
+        }
         currNode = currNode->next;
     }
     return 0;
 }
 
 DWORD WINAPI handleClient(void *arg){
-    int leaveIndicator = -1;
+    int leaveIndicator = 0;
     char buffer[256];
+    puts("Thread in action");
 
     while(1){
+        puts("Entered thread loop");
         if (leaveIndicator) break;
         int receiveStatus = recv(((struct clientNode*) arg)->socketFD, buffer, sizeof(buffer), 0);
         if (receiveStatus > 0 && strlen(buffer) > 0) {
+            puts("Message Received");
             sendMessage(buffer, ((struct clientNode*) arg)->userID);
         } else {
             fprintf(stderr, "Error while receiving data");
@@ -87,6 +94,7 @@ DWORD WINAPI handleClient(void *arg){
         strcpy(buffer, "");
     }
 
+    puts("Broken out of thread loop");
     closesocket(((struct clientNode*) arg)->socketFD);
     CloseHandle(((struct clientNode*) arg)->threadHandle);
     removeNode(((struct clientNode*) arg)->userID);
@@ -145,6 +153,12 @@ int main(){
         recv(client, buffer, sizeof(buffer), 0);
         struct clientNode* node = addNode(client, numClients, buffer);
         node->threadHandle = CreateThread(NULL, 0, handleClient, (void *)node, 0 ,&threadID);
+        if (node->threadHandle == NULL){
+            fprintf(stderr, "Error while creating thread");
+            exit(-1);
+        }
+
+        Sleep(1);
     }
 
     closesocket(socketFD);
