@@ -12,7 +12,7 @@ struct clientNode{
     char name[32];
     struct clientNode* next;
     HANDLE threadHandle;
-};
+} ADMIN;
 
 struct clientNode* HEAD;
 int numClients = 0;
@@ -66,10 +66,9 @@ int sendMessage(char *message, int uID){
     struct clientNode* currNode = HEAD;
     puts("Sending Message");
     for (int i = 0; i < numClients; i++){
-        if (currNode->userID != uID) {
-            int sendStatus = send(currNode->socketFD, message, strlen(message), 0);
-            if (sendStatus == -1) fprintf(stderr, "Error while sending message.");
-        }
+        int sendStatus = send(currNode->socketFD, message, strlen(message), 0);
+        if (sendStatus == -1) fprintf(stderr, "Error while sending message.\n");
+        printf("Message sent to %s, UID = %d\n", currNode->name, currNode->userID);
         currNode = currNode->next;
     }
     return 0;
@@ -80,6 +79,11 @@ DWORD WINAPI handleClient(void *arg){
     char buffer[256];
     puts("Thread in action");
 
+    char greetings[256];
+    strcpy(greetings, ((struct clientNode*) arg)->name);
+    strcat(greetings, " has joined the lobby.");
+    sendMessage(greetings, ADMIN.userID);
+
     while(1){
         puts("Entered thread loop");
         if (leaveIndicator) break;
@@ -88,13 +92,19 @@ DWORD WINAPI handleClient(void *arg){
             puts("Message Received");
             sendMessage(buffer, ((struct clientNode*) arg)->userID);
         } else {
-            fprintf(stderr, "Error while receiving data");
+            fprintf(stderr, "Error while receiving data: %d\n", receiveStatus);
             break;
         }
         strcpy(buffer, "");
     }
 
     puts("Broken out of thread loop");
+
+    char farewell[256];
+    strcpy(((struct clientNode*) arg)->name, farewell);
+    strcat(farewell, " has left the lobby.");
+    sendMessage(farewell, ADMIN.userID);
+
     closesocket(((struct clientNode*) arg)->socketFD);
     CloseHandle(((struct clientNode*) arg)->threadHandle);
     removeNode(((struct clientNode*) arg)->userID);
@@ -102,6 +112,9 @@ DWORD WINAPI handleClient(void *arg){
 }
 
 int main(){
+    ADMIN.userID = -1;
+    strcpy(ADMIN.name, "SERVER");
+
     WORD wVersReq;
     WSADATA wsaData;
 
